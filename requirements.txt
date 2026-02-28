@@ -1,0 +1,17 @@
+# LLM & Embeddings
+cohere>=5.0.0
+
+# Vector Store
+chromadb>=0.4.0
+
+# Document Processing
+pypdf>=4.0.0
+python-docx>=1.1.0
+
+# Utilities
+python-dotenv>=1.0.0
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+
+# Streamlit (for future UI)
+streamlit>=1.30.0

@@ -1,0 +1,14 @@
+[
+  {
+    "ticket": "VPN not connecting",
+    "region": "India",
+    "resolution": "Reset MFA token and reissue certificate.",
+    "department": "Infra"
+  },
+  {
+    "ticket": "Laptop not displaying on TV via HDMI in meeting room",
+    "region": "All",
+    "resolution": "1. Verify that the HDMI cable is securely connected to both the laptop and the TV.\n2. On the TV remote, press the \"Input\" or \"Source\" button and ensure the correct HDMI port (HDMI 1 or HDMI 2) is selected based on where the cable is connected.\n3. On the laptop, press Windows + P and select \"Duplicate\" or \"Extend\" to enable external display output.\n4. If the display is still not detected, right-click on Desktop → Display Settings → Click \"Detect\" under Multiple Displays.\n5. Update display drivers:\n   - Open Device Manager.\n   - Expand \"Display adapters\".\n   - Right-click the graphics driver (e.g., Intel / NVIDIA / AMD).\n   - Select \"Update driver\".\n   - Choose \"Search automatically for drivers\".\n   - If no update is found, download the latest driver from the manufacturer's official website and install it.\n6. Restart the laptop after driver update and reconnect the HDMI cable.\n7. If the issue persists, test with a different HDMI cable or different TV port to rule out hardware failure.\n8. Escalate to IT Infrastructure team if the meeting room HDMI wall plate or TV input panel is faulty.",
+    "department": "Infra"
+  }
+]
