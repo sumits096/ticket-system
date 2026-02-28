@@ -1,5 +1,5 @@
 """
-Streamlit UI for the Internal Knowledge Base Agent.
+Streamlit UI for the Support ticket resolution system.
 Chat (with streaming), Admin (upload, list, delete).
 """
 
@@ -9,8 +9,8 @@ from pathlib import Path
 from src.config import DEPARTMENTS, REGIONS, TICKET_RESOLUTIONS_PATH
 from src.rag_service import answer_stream, get_admin_service
 
-st.set_page_config(page_title="Knowledge Base Agent", page_icon="📚", layout="wide")
-st.title("Internal Knowledge Base Agent")
+st.set_page_config(page_title="Support Ticket Resolution System", page_icon="🎫", layout="wide")
+st.title("Support Ticket Resolution System")
 st.markdown("_Multi-region RAG-based documentation search_")
 
 # Init session state
