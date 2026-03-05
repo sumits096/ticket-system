@@ -6,7 +6,7 @@ a structured decision: department, priority, assignee and resolution steps.
 import json
 import logging
 import re
-from typing import List
+from typing import Dict, List, Optional
 
 import cohere
 
@@ -17,29 +17,86 @@ from src.vector_store import VectorStore
 
 logger = logging.getLogger(__name__)
 
-DECISION_SYSTEM_PROMPT = """You are an expert IT/business support analyst.
-
-Given an incoming support ticket and relevant context from the knowledge base,
-produce a structured analysis with exactly these fields:
-
-{
-  "department": "<one of: Infra, HR, Finance, General>",
-  "priority": "<one of: P1, P2, P3, P4>",
-  "priority_reason": "<one sentence explaining why this priority>",
-  "assignee_name": "<team or person best suited to resolve this>",
-  "resolution": "<numbered step-by-step resolution based on similar past tickets>"
+# ── Keyword-based department classification ───────────────────────────────────
+# Each department maps to a list of keywords found in subject/description.
+# Longer / more specific phrases are matched first (order matters within each list).
+DEPARTMENT_KEYWORDS: Dict[str, List[str]] = {
+    "Infra": [
+        "vpn", "network", "server", "database", "db ", " db", "postgres", "mysql",
+        "mongodb", "redis", "kubernetes", "k8s", "docker", "cloud", "aws", "azure",
+        "gcp", "s3 ", "ec2", "vm ", "virtual machine", "firewall", "ssl", "tls",
+        "certificate", "dns", "ip address", "bandwidth", "latency", "downtime",
+        "outage", "deployment", "devops", "ci/cd", "pipeline", "jenkins", "linux",
+        "windows server", "active directory", "ldap", "storage", "disk", "cpu",
+        "memory", "ram", "backup", "restore", "wifi", "internet", "switch", "router",
+        "laptop", "hardware", "monitor", "hdmi", "printer", "email server", "smtp",
+        "production down", "service down", "application down", "site down",
+        "500 error", "503", "504", "timeout", "crash", "reboot",
+    ],
+    "HR": [
+        "payroll portal", "payroll", "salary slip", "salary", "leave request",
+        "leave balance", "leave", "attendance", "onboarding", "offboarding",
+        "resignation", "termination", "appraisal", "performance review", "hr portal",
+        "hr self-service", "hr self service", "employee portal", "self service",
+        "benefits", "insurance", "pf ", "provident fund", "gratuity", "bonus",
+        "increment", "promotion", "transfer", "joining", "offer letter",
+        "appointment letter", "relieving letter", "noc", "training", "induction",
+        "id card", "access card", "badge", "background check", "bgv", "employee id",
+    ],
+    "Finance": [
+        "invoice", "payment gateway", "payment", "reimbursement", "expense claim",
+        "expense", "budget", "billing", "accounts payable", "accounts receivable",
+        "accounts", "accounting", "sap erp", "sap", "erp", "tally", "quickbooks",
+        "tax filing", "tax", "gst filing", "gst", "tds", "vendor payment",
+        "vendor", "purchase order", "po ", " po", "finance portal", "financial report",
+        "financial", "ledger", "balance sheet", "p&l", "profit", "loss",
+        "audit", "compliance", "receipt", "credit note", "debit note",
+        "bank statement", "bank", "transaction", "month end closing", "month end",
+        "quarter end", "year end", "closing entries",
+    ],
 }
 
-Priority guidelines:
-- P1 (Critical): production down, data loss, security breach, affects all users
-- P2 (High): major feature broken, >10 users affected, no workaround
-- P3 (Medium): partial functionality impacted, workaround available
-- P4 (Low): cosmetic issue, how-to question, enhancement request
 
-Rules:
-- Use ONLY the provided context. Do not invent information.
-- Respond with ONLY the JSON object, no extra text, no markdown fences.
-- Resolution must be actionable numbered steps.
+def _keyword_department(text: str) -> Optional[str]:
+    """Return the best-matching department from ticket text using keyword scoring."""
+    text_lower = text.lower()
+    scores: Dict[str, int] = {"Infra": 0, "HR": 0, "Finance": 0}
+    for dept, keywords in DEPARTMENT_KEYWORDS.items():
+        for kw in keywords:
+            if kw in text_lower:
+                # Longer keywords score higher
+                scores[dept] += len(kw.split())
+    best_dept = max(scores, key=lambda d: scores[d])
+    return best_dept if scores[best_dept] > 0 else None
+
+
+DECISION_SYSTEM_PROMPT = """You are an expert IT/business support analyst.
+
+Analyse the incoming support ticket and produce a JSON decision.
+
+Department classification rules (choose ONE):
+- "Infra"   : anything about servers, VPN, network, databases, cloud, DevOps, hardware,
+               software installations, email servers, outages, deployments, security certs
+- "HR"      : payroll portal, salary slips, leave, attendance, onboarding, employee benefits,
+               HR self-service, PF, appraisals, ID cards, background verification
+- "Finance" : invoices, payments, reimbursements, SAP/ERP, tax, GST, vendor management,
+               purchase orders, accounting, expense claims, month-end closing
+- "General" : access requests, Confluence/Jira access, general how-to, miscellaneous
+
+Priority guidelines:
+- P1 (Critical): production down, data loss, security breach, ALL users affected
+- P2 (High): major feature broken, many users affected, no workaround
+- P3 (Medium): partial impact, workaround available, deadline-sensitive
+- P4 (Low): cosmetic, how-to question, nice-to-have
+
+Respond with ONLY this JSON object (no markdown fences, no extra text):
+{
+  "department": "<Infra | HR | Finance | General>",
+  "priority": "<P1 | P2 | P3 | P4>",
+  "priority_reason": "<one sentence>",
+  "assignee_name": "<team or role best suited>",
+  "resolution": "<numbered step-by-step resolution>"
+}
 """
 
 
@@ -57,6 +114,10 @@ class DecisionEngine:
     def analyse(self, ticket: IncomingTicket) -> TicketDecision:
         """Retrieve similar context then ask Cohere to decide on the ticket."""
         query_text = f"{ticket.subject}\n\n{ticket.description}"
+
+        # Pre-classify department from keywords (used as hint + fallback)
+        keyword_dept = _keyword_department(query_text)
+        logger.info("Keyword-based department hint: %s", keyword_dept or "none")
 
         # Retrieve relevant chunks from the knowledge base
         embedding = self._embedding_service.embed_query(query_text)
@@ -77,10 +138,17 @@ class DecisionEngine:
             for c in chunks
         ]
 
+        # Embed the keyword hint directly in the user message so the LLM sees it
+        hint_line = (
+            f"Keyword analysis suggests department: {keyword_dept}. "
+            f"Use this as a strong signal unless the description clearly indicates otherwise.\n\n"
+            if keyword_dept else ""
+        )
         user_message = (
             f"Incoming ticket from {ticket.source_system.upper()}\n"
             f"ID: {ticket.external_id}\n"
             f"Subject: {ticket.subject}\n\n"
+            f"{hint_line}"
             f"Description:\n{ticket.description}"
         )
 
@@ -134,6 +202,13 @@ class DecisionEngine:
         department = decision_data.get("department", "General")
         if department not in ("Infra", "HR", "Finance", "General"):
             department = "General"
+
+        # If LLM fell back to General but keyword detection found a specific dept, trust keywords
+        if department == "General" and keyword_dept and keyword_dept != "General":
+            logger.info(
+                "LLM returned General; overriding with keyword department: %s", keyword_dept
+            )
+            department = keyword_dept
 
         assignee = decision_data.get("assignee_name") or ASSIGNEE_MAP.get(department, "support-team@company.com")
 
